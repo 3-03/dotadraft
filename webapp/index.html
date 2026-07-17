@@ -118,6 +118,8 @@
   .vs .v{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--hint)}
   .vs .v img{width:22px;height:auto;border-radius:3px}
   .center{padding:40px 16px;text-align:center;color:var(--hint)}
+  .credit{text-align:center;color:var(--hint);font-size:12px;padding:16px 12px 6px}
+  .credit a{color:var(--accent);text-decoration:none;font-weight:600}
   .spinner{
     width:26px;height:26px;border:3px solid rgba(255,255,255,.2);border-top-color:var(--accent);
     border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px;
@@ -145,6 +147,8 @@
 </header>
 
 <div id="grid" class="grid"><div class="center"><div class="spinner"></div>Загружаю героев…</div></div>
+
+<div class="credit">Сделано при поддержке • <a class="ext" href="https://github.com/3-03" target="_blank" rel="noopener">3-03</a></div>
 
 <div class="bar">
   <button class="main" id="go" disabled>Выбери героев противника</button>
@@ -178,6 +182,12 @@ let query = '';
 const $ = s => document.querySelector(s);
 
 function haptic(kind){ try{ tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred(kind);}catch(e){} }
+
+// внешние ссылки внутри Telegram открываем нативно
+document.addEventListener('click', e => {
+  const a = e.target.closest('a.ext');
+  if (a && inTG && tg.openLink){ e.preventDefault(); tg.openLink(a.href); }
+});
 
 async function loadHeroes(){
   const KEY = 'heroStats_v1';
@@ -301,7 +311,8 @@ function renderResults(ranked, enemyIds){
     </div>`;
   }).join('');
   $('#rlist').innerHTML = rows +
-    '<div class="center" style="font-size:11px;padding:14px">Преимущество = насколько ниже своего среднего винрейт врага против героя. Данные: OpenDota.</div>';
+    '<div class="center" style="font-size:11px;padding:14px">Преимущество = насколько ниже своего среднего винрейт врага против героя. Данные: OpenDota.</div>' +
+    '<div class="credit">Сделано при поддержке • <a class="ext" href="https://github.com/3-03" target="_blank" rel="noopener">3-03</a></div>';
 }
 
 loadHeroes().catch(() => {

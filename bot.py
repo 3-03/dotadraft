@@ -1,8 +1,12 @@
-"""Telegram-бот: подбор контр-пиков в Dota 2 против вражеского драфта.
+"""Telegram-бот — лаунчер Mini App «Dota Draft Helper».
+
+Весь подбор контр-пиков происходит внутри Mini App (webapp/index.html).
+Бот сам ничего в чате не считает — он показывает снизу постоянные кнопки:
+открыть приложение, как пользоваться, автор.
 
 Запуск:
     1. Получи токен у @BotFather в Telegram.
-    2. Скопируй .env.example в .env и вставь токен.
+    2. Скопируй .env.example в .env, вставь токен и WEBAPP_URL.
     3. python bot.py
 """
 
@@ -10,16 +14,16 @@ import asyncio
 import logging
 import os
 
-import httpx
 from dotenv import load_dotenv
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    KeyboardButton,
     MenuButtonWebApp,
+    ReplyKeyboardMarkup,
     Update,
     WebAppInfo,
 )
-from telegram.constants import ChatAction
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -27,9 +31,6 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-
-from engine import build_index, format_result, parse_enemies, suggest
-from opendota import get_heroes
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -39,38 +40,52 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-# HTTPS-ссылка на размещённый Mini App (webapp/index.html). Если не задана —
-# бот работает только в текстовом режиме, кнопка приложения не показывается.
+# HTTPS-ссылка на размещённый Mini App (webapp/index.html).
 WEBAPP_URL = os.getenv("WEBAPP_URL")
+GITHUB_URL = "https://github.com/3-03"
 
-HELP_TEXT = (
-    "🤖 *Dota Draft Helper*\n\n"
-    "Пришли мне героев противника — я подскажу, кем их закрыть.\n\n"
-    "Просто перечисли вражеские пики *через запятую*:\n"
-    "`Anti-Mage, Invoker, Sniper`\n\n"
-    "Можно по-русски и сокращениями: `ам, инвокер, снайпер, па`\n\n"
-    "🎮 Или открой приложение с иконками героев: /app\n\n"
-    "Данные о матчапах берутся из OpenDota (реальная статистика игр).\n"
-    "Команды: /start, /help, /app"
+# Тексты кнопок нижней клавиатуры
+BTN_APP = "🎮 Открыть драфт-помощник"
+BTN_HELP = "ℹ️ Как пользоваться"
+BTN_AUTHOR = "👤 Автор"
+
+WELCOME = (
+    "🛡 *Dota Draft Helper*\n\n"
+    "Нажми «🎮 Открыть драфт-помощник» внизу — выбери вражеских героев тапами "
+    "по иконкам, и приложение покажет, кем их закрыть.\n\n"
+    "Весь подбор — прямо внутри приложения."
+)
+WELCOME_NO_APP = (
+    "🛡 *Dota Draft Helper*\n\n"
+    "Приложение пока не подключено (не задан WEBAPP_URL в .env).\n"
+    "Разместите папку webapp/ по HTTPS и укажите ссылку — см. README."
+)
+HELP = (
+    "Как пользоваться:\n\n"
+    "1. Нажми кнопку «🎮 Открыть драфт-помощник» внизу.\n"
+    "2. Тапни по героям, которых пикает противник.\n"
+    "3. Нажми «Показать контр-пики».\n\n"
+    "Приложение покажет героев, которые их контрят, с преимуществом "
+    "по реальной статистике матчапов OpenDota."
 )
 
 
-async def post_init(app: Application) -> None:
-    """Создаёт HTTP-клиент и загружает список героев один раз при старте."""
-    client = httpx.AsyncClient(timeout=20.0, headers={"User-Agent": "dota-draft-bot"})
-    app.bot_data["client"] = client
-    try:
-        heroes = await get_heroes(client)
-        id_to_name, name_to_id = build_index(heroes)
-        app.bot_data["id_to_name"] = id_to_name
-        app.bot_data["name_to_id"] = name_to_id
-        logger.info("Загружено героев: %d", len(heroes))
-    except Exception:  # noqa: BLE001
-        logger.exception("Не удалось загрузить список героев при старте")
-        app.bot_data["id_to_name"] = {}
-        app.bot_data["name_to_id"] = {}
+def main_keyboard() -> ReplyKeyboardMarkup:
+    """Постоянная клавиатура снизу с заготовленными кнопками."""
+    rows = []
+    if WEBAPP_URL:
+        rows.append([KeyboardButton(BTN_APP, web_app=WebAppInfo(url=WEBAPP_URL))])
+    rows.append([KeyboardButton(BTN_HELP), KeyboardButton(BTN_AUTHOR)])
+    return ReplyKeyboardMarkup(
+        rows,
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Открой приложение кнопкой ниже 👇",
+    )
 
-    # Кнопка меню слева от поля ввода открывает Mini App
+
+async def post_init(app: Application) -> None:
+    """Ставит кнопку меню слева от поля ввода — тоже открывает Mini App."""
     if WEBAPP_URL:
         try:
             await app.bot.set_chat_menu_button(
@@ -82,69 +97,38 @@ async def post_init(app: Application) -> None:
         except Exception:  # noqa: BLE001
             logger.exception("Не удалось установить кнопку меню Mini App")
     else:
-        logger.info("WEBAPP_URL не задан — Mini App отключён, только текстовый режим.")
-
-
-async def post_shutdown(app: Application) -> None:
-    client = app.bot_data.get("client")
-    if client is not None:
-        await client.aclose()
+        logger.warning("WEBAPP_URL не задан — приложение недоступно, задайте его в .env.")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_markdown(HELP_TEXT)
+    text = WELCOME if WEBAPP_URL else WELCOME_NO_APP
+    await update.message.reply_markdown(text, reply_markup=main_keyboard())
 
 
-async def app_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Отправляет кнопку, открывающую Mini App с иконками героев."""
-    if not WEBAPP_URL:
-        await update.message.reply_text(
-            "Приложение пока не подключено (не задан WEBAPP_URL).\n"
-            "Пока просто пришли вражеских героев через запятую, например:\n"
-            "Anti-Mage, Invoker, Sniper"
-        )
-        return
-    keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🎮 Открыть драфт-помощник", web_app=WebAppInfo(url=WEBAPP_URL))]]
-    )
-    await update.message.reply_text(
-        "Выбери вражеских героев тапами по иконкам:", reply_markup=keyboard
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(HELP, reply_markup=main_keyboard())
+
+
+async def author_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_markdown(
+        f"Сделано при поддержке • [3-03]({GITHUB_URL})",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Открыть GitHub", url=GITHUB_URL)]]
+        ),
     )
 
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    text = update.message.text or ""
-    name_to_id = context.bot_data.get("name_to_id") or {}
-    id_to_name = context.bot_data.get("id_to_name") or {}
-    client = context.bot_data.get("client")
-
-    if not name_to_id or client is None:
+async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Реагирует только на заготовленные кнопки; свободный ввод — мягкая подсказка."""
+    text = (update.message.text or "").strip()
+    if text == BTN_HELP:
+        await help_command(update, context)
+    elif text == BTN_AUTHOR:
+        await author_message(update, context)
+    else:
         await update.message.reply_text(
-            "Список героев ещё не загружен — попробуй через пару секунд ещё раз."
+            "Пользуйся кнопками снизу 👇", reply_markup=main_keyboard()
         )
-        return
-
-    found, unknown = parse_enemies(text, name_to_id)
-    if not found:
-        await update.message.reply_text(
-            "Не распознал ни одного героя.\n"
-            "Перечисли вражеских героев через запятую, например:\n"
-            "Anti-Mage, Invoker, Sniper"
-        )
-        return
-
-    await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
-
-    try:
-        ranked = await suggest(client, found, id_to_name)
-    except httpx.HTTPError:
-        logger.exception("Ошибка запроса к OpenDota")
-        await update.message.reply_text(
-            "OpenDota сейчас недоступна или лимит запросов исчерпан. Попробуй позже."
-        )
-        return
-
-    await update.message.reply_text(format_result(found, unknown, ranked, id_to_name))
 
 
 def main() -> None:
@@ -160,17 +144,12 @@ def main() -> None:
     except RuntimeError:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
-    app = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .post_init(post_init)
-        .post_shutdown(post_shutdown)
-        .build()
-    )
+    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
-    app.add_handler(CommandHandler(["start", "help"], start))
-    app.add_handler(CommandHandler("app", app_command))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("app", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 
     logger.info("Бот запущен. Ctrl+C для остановки.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)

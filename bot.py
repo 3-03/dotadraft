@@ -69,6 +69,16 @@ HELP = (
     "по реальной статистике матчапов OpenDota."
 )
 
+# Показывается по центру пустого чата ДО нажатия «Запустить» (setMyDescription).
+BOT_DESCRIPTION = (
+    "🛡 Подскажу, кем закрыть вражеский драфт в Dota 2.\n\n"
+    "Открой приложение, отметь героев противника тапами по иконкам — и получи "
+    "контр-пиков на основе реальной статистики матчапов OpenDota.\n\n"
+    "Нажми «Запустить» и жми кнопку 🎮 снизу."
+)
+# Короткое описание в профиле бота (setMyShortDescription).
+BOT_SHORT_DESCRIPTION = "Контр-пики в Dota 2 по вражескому драфту. Данные OpenDota."
+
 
 def main_keyboard() -> ReplyKeyboardMarkup:
     """Постоянная клавиатура снизу с заготовленными кнопками."""
@@ -85,7 +95,14 @@ def main_keyboard() -> ReplyKeyboardMarkup:
 
 
 async def post_init(app: Application) -> None:
-    """Ставит кнопку меню слева от поля ввода — тоже открывает Mini App."""
+    """Ставит описание бота (по центру пустого чата) и кнопку меню Mini App."""
+    try:
+        await app.bot.set_my_description(BOT_DESCRIPTION)
+        await app.bot.set_my_short_description(BOT_SHORT_DESCRIPTION)
+        logger.info("Описание бота установлено.")
+    except Exception:  # noqa: BLE001
+        logger.exception("Не удалось установить описание бота")
+
     if WEBAPP_URL:
         try:
             await app.bot.set_chat_menu_button(

@@ -36,10 +36,20 @@
   }
   .chips{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
   .chip{
-    font-size:12px; padding:5px 10px; border-radius:14px;
+    font-size:13px; padding:7px 12px; border-radius:14px;
     background:var(--sec); color:var(--hint); border:1px solid transparent; cursor:pointer;
   }
   .chip.active{color:var(--accent-text); background:var(--accent); border-color:var(--accent)}
+  .status{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-top:10px; font-size:14px; color:var(--hint);
+  }
+  .status b{color:var(--text); font-size:16px}
+  .clearbtn{
+    background:var(--sec); color:var(--text); border:1px solid rgba(255,255,255,.18);
+    border-radius:9px; padding:7px 14px; font-size:14px; cursor:pointer;
+  }
+  .clearbtn:active{opacity:.6}
 
   .grid{
     display:grid; grid-template-columns:repeat(auto-fill,minmax(76px,1fr));
@@ -66,16 +76,14 @@
   .bar{
     position:fixed; left:0; right:0; bottom:0; z-index:30;
     background:var(--sec); border-top:1px solid rgba(255,255,255,.08);
-    padding:10px 12px calc(10px + env(safe-area-inset-bottom));
-    display:flex; gap:10px; align-items:center;
+    padding:12px 12px calc(14px + env(safe-area-inset-bottom));
   }
-  .bar .info{font-size:13px;color:var(--hint);flex:1}
-  .bar .info b{color:var(--text)}
   button.main{
     background:var(--accent); color:var(--accent-text); border:none;
     border-radius:10px; padding:12px 16px; font-size:15px; font-weight:600; cursor:pointer;
   }
-  button.main:disabled{opacity:.45}
+  button.main:disabled{opacity:.4}
+  .bar .main{width:100%; padding:16px; font-size:17px; font-weight:700; border-radius:12px;}
   button.ghost{
     background:transparent;color:var(--hint);border:none;font-size:13px;cursor:pointer;
     text-decoration:underline;padding:0;
@@ -130,13 +138,16 @@
     <div class="chip" data-attr="int">🔮 Инт.</div>
     <div class="chip" data-attr="all_pick">🌐 Универс.</div>
   </div>
+  <div class="status">
+    <span>Выбрано врагов: <b id="count">0</b></span>
+    <button class="clearbtn" id="clear">Сбросить</button>
+  </div>
 </header>
 
 <div id="grid" class="grid"><div class="center"><div class="spinner"></div>Загружаю героев…</div></div>
 
 <div class="bar">
-  <div class="info">Выбрано: <b id="count">0</b> <button class="ghost" id="clear" style="margin-left:8px">сбросить</button></div>
-  <button class="main" id="go" disabled>Контр-пики</button>
+  <button class="main" id="go" disabled>Выбери героев противника</button>
 </div>
 
 <div id="results">
@@ -210,13 +221,11 @@ function toggle(id){
   renderGrid(); updateBar();
 }
 function updateBar(){
-  $('#count').textContent = selected.size;
-  const on = selected.size > 0;
-  $('#go').disabled = !on;
-  if (inTG){
-    if (on){ tg.MainButton.setText(`Контр-пики (${selected.size})`); tg.MainButton.show(); }
-    else tg.MainButton.hide();
-  }
+  const n = selected.size;
+  $('#count').textContent = n;
+  const go = $('#go');
+  go.disabled = n === 0;
+  go.textContent = n ? `Показать контр-пики (${n})` : 'Выбери героев противника';
 }
 
 $('#search').addEventListener('input', e => { query = e.target.value; renderGrid(); });
@@ -228,7 +237,6 @@ $('#chips').addEventListener('click', e => {
 $('#clear').onclick = () => { selected.clear(); renderGrid(); updateBar(); };
 $('#go').onclick = showResults;
 $('#back').onclick = closeResults;
-if (inTG){ tg.MainButton.onClick(showResults); }
 
 async function computeCounters(enemyIds){
   const per = {}; // cand_id -> {enemy_id: adv}
@@ -260,14 +268,11 @@ async function showResults(){
   $('#enemyStrip').innerHTML = enemyIds.map(id =>
     `<img src="${byId[id].img}" title="${byId[id].name}">`).join('');
   $('#rlist').innerHTML = '<div class="center"><div class="spinner"></div>Считаю матчапы…</div>';
-  if (inTG) tg.MainButton.showProgress();
   try{
     const ranked = await computeCounters(enemyIds);
     renderResults(ranked, enemyIds);
   }catch(e){
     $('#rlist').innerHTML = '<div class="center">Не удалось получить данные OpenDota.<br>Попробуй ещё раз позже.</div>';
-  }finally{
-    if (inTG) tg.MainButton.hideProgress();
   }
 }
 function closeResults(){ $('#results').classList.remove('open'); }

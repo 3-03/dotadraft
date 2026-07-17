@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Dota Draft Helper</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root{
+    --bg: var(--tg-theme-bg-color, #17181c);
+    --sec: var(--tg-theme-secondary-bg-color, #1f2127);
+    --text: var(--tg-theme-text-color, #f1f1f1);
+    --hint: var(--tg-theme-hint-color, #8a8f98);
+    --accent: var(--tg-theme-button-color, #4c8bf5);
+    --accent-text: var(--tg-theme-button-text-color, #fff);
+    --danger:#e5534b;
+    --good:#3fb768;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    -webkit-tap-highlight-color:transparent;
+    padding-bottom:96px;
+  }
+  header{
+    position:sticky; top:0; z-index:20; background:var(--bg);
+    padding:10px 12px 8px; border-bottom:1px solid rgba(255,255,255,.06);
+  }
+  h1{font-size:16px;margin:0 0 8px}
+  .controls{display:flex;gap:8px;align-items:center}
+  #search{
+    flex:1; background:var(--sec); border:none; border-radius:10px;
+    color:var(--text); padding:9px 12px; font-size:14px; outline:none;
+  }
+  .chips{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+  .chip{
+    font-size:12px; padding:5px 10px; border-radius:14px;
+    background:var(--sec); color:var(--hint); border:1px solid transparent; cursor:pointer;
+  }
+  .chip.active{color:var(--accent-text); background:var(--accent); border-color:var(--accent)}
+
+  .grid{
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(76px,1fr));
+    gap:6px; padding:10px;
+  }
+  .hero{
+    position:relative; border-radius:8px; overflow:hidden; cursor:pointer;
+    aspect-ratio:16/9; background:var(--sec); border:2px solid transparent;
+  }
+  .hero img{width:100%;height:100%;object-fit:cover;display:block}
+  .hero .name{
+    position:absolute; left:0; right:0; bottom:0;
+    font-size:9px; line-height:1.1; padding:6px 3px 2px;
+    background:linear-gradient(transparent,rgba(0,0,0,.85));
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center;
+  }
+  .hero.sel{border-color:var(--accent)}
+  .hero.sel::after{
+    content:"✓"; position:absolute; top:2px; right:4px; font-size:12px; font-weight:700;
+    color:var(--accent-text); background:var(--accent); border-radius:50%;
+    width:18px;height:18px;display:flex;align-items:center;justify-content:center;
+  }
+
+  .bar{
+    position:fixed; left:0; right:0; bottom:0; z-index:30;
+    background:var(--sec); border-top:1px solid rgba(255,255,255,.08);
+    padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+    display:flex; gap:10px; align-items:center;
+  }
+  .bar .info{font-size:13px;color:var(--hint);flex:1}
+  .bar .info b{color:var(--text)}
+  button.main{
+    background:var(--accent); color:var(--accent-text); border:none;
+    border-radius:10px; padding:12px 16px; font-size:15px; font-weight:600; cursor:pointer;
+  }
+  button.main:disabled{opacity:.45}
+  button.ghost{
+    background:transparent;color:var(--hint);border:none;font-size:13px;cursor:pointer;
+    text-decoration:underline;padding:0;
+  }
+
+  /* результаты */
+  #results{
+    position:fixed; inset:0; z-index:40; background:var(--bg);
+    transform:translateY(100%); transition:transform .25s ease; overflow-y:auto;
+    padding-bottom:24px;
+  }
+  #results.open{transform:translateY(0)}
+  .rhead{
+    position:sticky;top:0;background:var(--bg);padding:12px;
+    border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:10px;
+  }
+  .rhead h2{font-size:15px;margin:0;flex:1}
+  .enemies{display:flex;gap:5px;flex-wrap:wrap;padding:10px 12px 0}
+  .enemies img{width:34px;height:auto;border-radius:5px}
+  .rlist{padding:8px 12px}
+  .card{
+    background:var(--sec); border-radius:10px; padding:10px; margin-bottom:8px;
+  }
+  .card .top{display:flex;align-items:center;gap:10px}
+  .card .top img{width:52px;height:auto;border-radius:6px}
+  .card .top .nm{flex:1;font-size:14px;font-weight:600}
+  .card .top .adv{font-size:15px;font-weight:700}
+  .adv.pos{color:var(--good)} .adv.neg{color:var(--danger)}
+  .track{height:6px;border-radius:3px;background:rgba(255,255,255,.1);margin-top:8px;overflow:hidden}
+  .track > i{display:block;height:100%;background:var(--good)}
+  .vs{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .vs .v{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--hint)}
+  .vs .v img{width:22px;height:auto;border-radius:3px}
+  .center{padding:40px 16px;text-align:center;color:var(--hint)}
+  .spinner{
+    width:26px;height:26px;border:3px solid rgba(255,255,255,.2);border-top-color:var(--accent);
+    border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡 Кого пикает противник?</h1>
+  <div class="controls">
+    <input id="search" placeholder="Поиск героя…" autocomplete="off">
+  </div>
+  <div class="chips" id="chips">
+    <div class="chip active" data-attr="all">Все</div>
+    <div class="chip" data-attr="str">💪 Сила</div>
+    <div class="chip" data-attr="agi">🏹 Ловк.</div>
+    <div class="chip" data-attr="int">🔮 Инт.</div>
+    <div class="chip" data-attr="all_pick">🌐 Универс.</div>
+  </div>
+</header>
+
+<div id="grid" class="grid"><div class="center"><div class="spinner"></div>Загружаю героев…</div></div>
+
+<div class="bar">
+  <div class="info">Выбрано: <b id="count">0</b> <button class="ghost" id="clear" style="margin-left:8px">сбросить</button></div>
+  <button class="main" id="go" disabled>Контр-пики</button>
+</div>
+
+<div id="results">
+  <div class="rhead">
+    <button class="main" id="back" style="padding:8px 12px">← Назад</button>
+    <h2>Рекомендованные контр-пики</h2>
+  </div>
+  <div class="enemies" id="enemyStrip"></div>
+  <div class="rlist" id="rlist"></div>
+</div>
+
+<script>
+const CDN = 'https://cdn.cloudflare.steamstatic.com';
+const API = 'https://api.opendota.com/api';
+const MIN_GAMES = 30;
+const TOP_N = 12;
+
+const tg = window.Telegram ? window.Telegram.WebApp : null;
+const inTG = !!(tg && tg.platform && tg.platform !== 'unknown');
+if (tg) { tg.ready(); tg.expand(); }
+
+let heroes = [];               // {id,name,img,icon,attr}
+const byId = {};
+let selected = new Set();
+let attrFilter = 'all';
+let query = '';
+
+const $ = s => document.querySelector(s);
+
+function haptic(kind){ try{ tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred(kind);}catch(e){} }
+
+async function loadHeroes(){
+  const KEY = 'heroStats_v1';
+  try{
+    const c = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (c && Date.now() - c.t < 86400000) return build(c.d);
+  }catch(e){}
+  const data = await fetch(API + '/heroStats').then(r => r.json());
+  try{ localStorage.setItem(KEY, JSON.stringify({t:Date.now(), d:data})); }catch(e){}
+  build(data);
+}
+function build(data){
+  heroes = data.map(h => ({
+    id:h.id, name:h.localized_name,
+    img:CDN + h.img, icon:CDN + h.icon, attr:h.primary_attr
+  })).sort((a,b)=>a.name.localeCompare(b.name));
+  heroes.forEach(h => byId[h.id] = h);
+  renderGrid();
+}
+
+function renderGrid(){
+  const q = query.trim().toLowerCase();
+  const list = heroes.filter(h =>
+    (attrFilter === 'all' || h.attr === attrFilter) &&
+    (!q || h.name.toLowerCase().includes(q))
+  );
+  const grid = $('#grid');
+  if (!list.length){ grid.innerHTML = '<div class="center">Ничего не найдено</div>'; return; }
+  grid.innerHTML = '';
+  for (const h of list){
+    const el = document.createElement('div');
+    el.className = 'hero' + (selected.has(h.id) ? ' sel' : '');
+    el.innerHTML = `<img loading="lazy" src="${h.img}" alt=""><div class="name">${h.name}</div>`;
+    el.onclick = () => toggle(h.id);
+    grid.appendChild(el);
+  }
+}
+function toggle(id){
+  if (selected.has(id)) selected.delete(id); else selected.add(id);
+  haptic('light');
+  renderGrid(); updateBar();
+}
+function updateBar(){
+  $('#count').textContent = selected.size;
+  const on = selected.size > 0;
+  $('#go').disabled = !on;
+  if (inTG){
+    if (on){ tg.MainButton.setText(`Контр-пики (${selected.size})`); tg.MainButton.show(); }
+    else tg.MainButton.hide();
+  }
+}
+
+$('#search').addEventListener('input', e => { query = e.target.value; renderGrid(); });
+$('#chips').addEventListener('click', e => {
+  const chip = e.target.closest('.chip'); if (!chip) return;
+  [...document.querySelectorAll('.chip')].forEach(c => c.classList.remove('active'));
+  chip.classList.add('active'); attrFilter = chip.dataset.attr; renderGrid();
+});
+$('#clear').onclick = () => { selected.clear(); renderGrid(); updateBar(); };
+$('#go').onclick = showResults;
+$('#back').onclick = closeResults;
+if (inTG){ tg.MainButton.onClick(showResults); }
+
+async function computeCounters(enemyIds){
+  const per = {}; // cand_id -> {enemy_id: adv}
+  await Promise.all(enemyIds.map(async eid => {
+    const mus = await fetch(`${API}/heroes/${eid}/matchups`).then(r => r.json());
+    const valid = mus.filter(m => m.games_played >= MIN_GAMES);
+    if (!valid.length) return;
+    const tw = valid.reduce((s,m)=>s+m.wins,0);
+    const tg2 = valid.reduce((s,m)=>s+m.games_played,0);
+    const base = tw / tg2;
+    for (const m of valid){
+      const adv = base - m.wins / m.games_played;
+      (per[m.hero_id] = per[m.hero_id] || {})[eid] = adv;
+    }
+  }));
+  enemyIds.forEach(id => delete per[id]);
+  const n = enemyIds.length;
+  return Object.entries(per).map(([cid, pe]) => {
+    const vals = Object.values(pe);
+    return { id:+cid, avg: vals.reduce((a,b)=>a+b,0)/n, per:pe };
+  }).sort((a,b)=>b.avg-a.avg).slice(0, TOP_N);
+}
+
+function pct(x){ return (x>=0?'+':'') + (x*100).toFixed(1) + '%'; }
+
+async function showResults(){
+  const enemyIds = [...selected];
+  const R = $('#results'); R.classList.add('open');
+  $('#enemyStrip').innerHTML = enemyIds.map(id =>
+    `<img src="${byId[id].img}" title="${byId[id].name}">`).join('');
+  $('#rlist').innerHTML = '<div class="center"><div class="spinner"></div>Считаю матчапы…</div>';
+  if (inTG) tg.MainButton.showProgress();
+  try{
+    const ranked = await computeCounters(enemyIds);
+    renderResults(ranked, enemyIds);
+  }catch(e){
+    $('#rlist').innerHTML = '<div class="center">Не удалось получить данные OpenDota.<br>Попробуй ещё раз позже.</div>';
+  }finally{
+    if (inTG) tg.MainButton.hideProgress();
+  }
+}
+function closeResults(){ $('#results').classList.remove('open'); }
+
+function renderResults(ranked, enemyIds){
+  if (!ranked.length){ $('#rlist').innerHTML = '<div class="center">Недостаточно данных для совета.</div>'; return; }
+  const maxAdv = Math.max(...ranked.map(r => Math.abs(r.avg)), 0.01);
+  const rows = ranked.map((r, i) => {
+    const h = byId[r.id]; if (!h) return '';
+    const cls = r.avg >= 0 ? 'pos' : 'neg';
+    const width = Math.max(4, Math.abs(r.avg) / maxAdv * 100);
+    const vs = enemyIds.map(eid => {
+      const a = r.per[eid];
+      const label = (a === undefined) ? '—' : pct(a);
+      return `<span class="v"><img src="${byId[eid].icon}">${label}</span>`;
+    }).join('');
+    return `<div class="card">
+      <div class="top">
+        <span style="color:var(--hint);font-size:13px;width:18px">${i+1}</span>
+        <img src="${h.img}">
+        <div class="nm">${h.name}</div>
+        <div class="adv ${cls}">${pct(r.avg)}</div>
+      </div>
+      <div class="track"><i style="width:${width}%;background:${r.avg>=0?'var(--good)':'var(--danger)'}"></i></div>
+      <div class="vs">${vs}</div>
+    </div>`;
+  }).join('');
+  $('#rlist').innerHTML = rows +
+    '<div class="center" style="font-size:11px;padding:14px">Преимущество = насколько ниже своего среднего винрейт врага против героя. Данные: OpenDota.</div>';
+}
+
+loadHeroes().catch(() => {
+  $('#grid').innerHTML = '<div class="center">Не удалось загрузить героев. Проверь интернет и обнови.</div>';
+});
+</script>
+</body>
+</html>
